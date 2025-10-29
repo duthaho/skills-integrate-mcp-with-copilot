@@ -5,14 +5,28 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+import json
 import os
 from pathlib import Path
 
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+# Load teacher credentials
+def load_teachers():
+    teachers_file = Path(__file__).parent.parent / "teachers.json"
+    with open(teachers_file, 'r') as f:
+        return json.load(f)
+
+# Models for authentication
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
@@ -83,6 +97,18 @@ def root():
     return RedirectResponse(url="/static/index.html")
 
 
+@app.post("/auth/login")
+def login(credentials: LoginRequest):
+    """Authenticate a teacher"""
+    teachers_data = load_teachers()
+    
+    for teacher in teachers_data["teachers"]:
+        if teacher["username"] == credentials.username and teacher["password"] == credentials.password:
+            return {"message": "Login successful", "authenticated": True}
+    
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
 @app.get("/activities")
 def get_activities():
     return activities
@@ -111,8 +137,15 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
-    """Unregister a student from an activity"""
+def unregister_from_activity(activity_name: str, email: str, authenticated: bool = False):
+    """Unregister a student from an activity (requires authentication)"""
+    # Check if user is authenticated
+    if not authenticated:
+        raise HTTPException(
+            status_code=403,
+            detail="Only teachers can unregister students from activities"
+        )
+    
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
